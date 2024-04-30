@@ -98,7 +98,7 @@ def update_task(
 def delete_todo(id: int):
     try:
         con, cur = connect_to_db()
-        cur.execute("DELETE from todo where id = ?", (id,))
+        cur.execute("DELETE FROM todo WHERE id = ?", (id,))
         con.commit()
     finally:
         con.close()

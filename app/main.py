@@ -1,104 +1,46 @@
-from typing import Annotated
-import sqlite3
-from fastapi import FastAPI, Body, HTTPException, status
-
-
-def connect_to_db():
-    con = sqlite3.connect("my_app.db")
-    cur = con.cursor()
-    return con, cur
-
-
-try:
-    con, cur = connect_to_db()
-
-    cur.execute("""CREATE TABLE if not exists todo (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            description TEXT,
-            completed INTEGER);
-    """)
-finally:
-    con.close()
-
+from fastapi import FastAPI, HTTPException
+from databases import Database
+from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
+# URL для PostgreSQL (измените его под свою БД)
+DATABASE_URL = "postgresql://user:password@localhost/dbname"
 
-@app.post("/add/")
-def add_task(
-    title: Annotated[str, Body()],
-    description: Annotated[str, Body()]
-):
+database = Database(DATABASE_URL)
+
+
+# Модель User для валидации входных данных
+class UserCreate(BaseModel):
+    username: str
+    email: str
+
+
+# Модель User для валидации исходящих данных - чисто для демонстрации (обычно входная модель шире чем выходная, т.к. на вход мы просим, например, пароль, который обратно не возвращаем, и другое, что не обязательно возвращать) 
+class UserReturn(BaseModel):
+    username: str
+    email: str
+    id: Optional[int] = None
+
+
+# тут устанавливаем условия подключения к базе данных и отключения - можно использовать в роутах контекстный менеджер async with Database(...) as db: etc
+@app.on_event("startup")
+async def startup_database():
+    await database.connect()
+
+@app.on_event("shutdown")
+async def shutdown_database():
+    await database.disconnect()
+    
+    
+# создание роута для создания юзеров
+@app.post("/users/", response_model=UserReturn)
+async def create_user(user: UserCreate):
+    query = "INSERT INTO users (username, email) VALUES (:username, :email) RETURNING id"
+    values = {"username": user.username, "email": user.email}
     try:
-        con, cur = connect_to_db()
-        cur.execute("""INSERT INTO todo (title, description, completed)
-                    values (?, ?, ?)
-                    """, (title, description, 0))
-        con.commit()
-    finally:
-        con.close()
-
-
-@app.get("/{id}/")
-def get_task_by_id(id: int):
-    try:
-        con, cur = connect_to_db()
-        cur.execute("SELECT * FROM todo WHERE id = ?", (id,))
-        task = cur.fetchone()
-        if task is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="This task doesn't exist"
-            )
-        return {
-            "id": task[0],
-            "title": task[1],
-            "description": task[2],
-            "completed": task[3]
-        }
-    finally:
-        con.close()
-
-
-@app.put("/{id}/")
-def update_task(
-    id: int,
-    title: Annotated[str, Body()],
-    description: Annotated[str, Body()],
-    completed: Annotated[int, Body()]
-):
-    try:
-        con, cur = connect_to_db()
-        cur.execute("""UPDATE todo
-                    SET title = ?,
-                    description = ?,
-                    completed = ?
-                    WHERE id = ?
-                    """, (title, description, completed, id))
-        con.commit()
-        cur.execute("SELECT * FROM todo WHERE id = ?", (id,))
-        task = cur.fetchone()
-        if task is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="This task doesn't exist"
-            )
-        return {
-            "id": task[0],
-            "title": task[1],
-            "description": task[2],
-            "completed": task[3]
-        }
-    finally:
-        con.close()
-
-
-@app.delete("/{id}/")
-def delete_todo(id: int):
-    try:
-        con, cur = connect_to_db()
-        cur.execute("DELETE FROM todo WHERE id = ?", (id,))
-        con.commit()
-    finally:
-        con.close()
+        user_id = await database.execute(query=query, values=values)
+        return {**user.dict(), "id": user_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to create user")

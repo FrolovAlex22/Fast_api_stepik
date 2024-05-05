@@ -1,110 +1,83 @@
-from typing import Annotated
-import sqlite3
-from fastapi import FastAPI, Body, HTTPException, status
-
-
-def connect_to_db():
-    con = sqlite3.connect("training.db")
-    cur = con.cursor()
-    return con, cur
-
-
-try:
-    con, cur = connect_to_db()
-
-    cur.execute("""CREATE TABLE if not exists diplom (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            description TEXT,
-            price INTEGER,
-            completed INTEGER);
-    """)
-finally:
-    con.close()
+from fastapi import FastAPI, HTTPException
+from databases import Database
+from pydantic import BaseModel
+from typing import Optional
 
 
 app = FastAPI()
 
-@app.post('/add/')
-async def add_direction(
-        name: Annotated[str, Body()],
-        description: Annotated[str, Body()],
-        price: Annotated[int, Body()]
-        ):
+DATABASE_URL = "postgresql://postgres:1q2w3e4r@localhost/mydatabase"
+
+database = Database(DATABASE_URL)
+
+
+class Todo(BaseModel):
+    title: str
+    description: str
+    completed: bool = False
+
+
+class TodoReturn(BaseModel):
+    title: str
+    description: str
+    completed: bool
+    id: Optional[int] = None
+
+
+@app.on_event("startup")
+async def startup_database():
+    await database.connect()
+
+@app.on_event("shutdown")
+async def shutdown_database():
+    await database.disconnect()
+
+
+@app.post("/task/", response_model=TodoReturn)
+async def create_user(task: Todo):
+    query = "INSERT INTO todo (title, description, completed) VALUES (:title, :description, :completed) RETURNING id"
+    values = {"title": task.title, "description": task.description, "completed": task.completed}
     try:
-        con, cur = connect_to_db()
+        task_id = await database.execute(query=query, values=values)
+        return {**task.dict(), "id": task_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to create user")
 
-        cur.execute("""INSERT INTO diplom (name, description, price, completed)
-                    values (?, ?, ?, ?)
-                    """, (name, description, price, 0))
-        con.commit()
-    finally:
-        con.close()
 
-@app.get('/{id}/')
-async def get_direction(id: int):
+@app.get("/task/{task_id}", response_model=TodoReturn)
+async def get_user(task_id: int):
+    query = "SELECT * FROM todo WHERE id = :task_id"
+    values = {"task_id": task_id}
     try:
-        con, cur = connect_to_db()
+        result = await database.fetch_one(query=query, values=values)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to fetch user from database")
+    if result:
+        return TodoReturn(title=result["title"], description=result["description"], completed=result["completed"], id=result["id"])
+    else:
+        raise HTTPException(status_code=404, detail="User not found")
 
-        cur.execute("SELECT * FROM diplom WHERE id = ?", (id,))
-        diplom = cur.fetchone()
-        if diplom is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="This diplom doesn't exist"
-            )
-        return {
-            'id': diplom[0],
-            'name': diplom[1],
-            'description': diplom[2],
-            'price': diplom[3],
-            'completed': diplom[4],
-            }
-    finally:
-        con.close()
 
-@app.put('/{id}/')
-async def put_direction(
-    id: int,
-    name: Annotated[str, Body()],
-    description: Annotated[str, Body()],
-    price: Annotated[int, Body()]
-    ):
+@app.put("/task/{task_id}", response_model=TodoReturn)
+async def update_user(task_id: int, task: Todo):
+    query = "UPDATE todo SET title = :title, description = :description, completed = :completed WHERE id = :task_id"
+    values = {"task_id": task_id, "title": task.title, "description": task.description, "completed": task.completed}
     try:
-        con, cur = connect_to_db()
+        await database.execute(query=query, values=values)
+        return {**task.dict(), "id": task_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to update user in database")
 
-        cur.execute("""UPDATE diplom
-                    SET name = ?,
-                    description = ?,
-                    price = ?
-                    WHERE id = ?""", (name, description, price , id))
-        con.commit()
-        cur.execute("SELECT * FROM diplom WHERE id = ?", (id,))
-        diplom = cur.fetchone()
-        if diplom is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="This diplom doesn't exist"
-            )
-        return {
-            'id': diplom[0],
-            'name': diplom[1],
-            'description': diplom[2],
-            'price': diplom[3],
-            'completed': diplom[4],
-            }
-    finally:
-        con.close()
 
-@app.delete('/{id}/')
-async def delete_direction(
-    id: int
-    ):
+@app.delete("/task/{task_id}", response_model=dict)
+async def delete_user(task_id: int):
+    query = "DELETE FROM todo WHERE id = :task_id RETURNING id"
+    values = {"task_id": task_id}
     try:
-        con, cur = connect_to_db()
-        cur.execute("DELETE FROM diplom WHERE id = ?", (id,))
-        con.commit()
-    finally:
-        con.close()
-
-
+        deleted_rows = await database.execute(query=query, values=values)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to delete task from database")
+    if deleted_rows:
+        return {"message": "Task deleted successfully"}
+    else:
+        raise HTTPException(status_code=404, detail="Task not found")

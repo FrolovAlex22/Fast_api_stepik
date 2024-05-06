@@ -1,28 +1,24 @@
-from typing import Union, Optional
-from fastapi import Cookie
+from datetime import datetime
+from sqlalchemy import JSON, MetaData, Integer, String, TIMESTAMP, ForeignKey, Table, Column
 
-from pydantic import BaseModel
+metadata = MetaData()
 
-
-class User(BaseModel):
-    username: str
-    password: str
-
-
-class UserCreate(BaseModel):
-    name: str
-    email: str
-    age: int
-    is_subscribed: bool
+roles = Table(
+    'roles',
+    metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', String, nullable=False),
+    Column('permissions', JSON)
+)
 
 
-class Feedback(BaseModel):
-    name: str
-    message: str
-
-
-class Product(BaseModel):
-    product_id: int
-    name: str
-    category: str
-    price: float
+users = Table(
+    'users',
+    metadata,
+    Column('id', Integer, primary_key=True),
+    Column('email', String, nullable=False),
+    Column('username', String, nullable=False),
+    Column('password', String, nullable=False),
+    Column('registered_ad', TIMESTAMP, default=datetime.now),
+    Column('role_id', Integer, ForeignKey('roles.id'))
+)

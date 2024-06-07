@@ -6,3 +6,4 @@ databases
 alembic
 psycopg2
 sqlalchemy
+requests

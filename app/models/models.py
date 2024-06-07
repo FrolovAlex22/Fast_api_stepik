@@ -28,3 +28,4 @@ class Product(Base):
     description = Column(String, nullable=False)
     price = Column(Integer, nullable=False)
     count = Column(Integer, nullable=False)
+    someone = Column(Integer, nullable=False)

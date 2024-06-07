@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from databases import Database
 from pydantic import BaseModel
 from typing import Optional
+from fastapi.exceptions import RequestValidationError
 
 
 app = FastAPI()
@@ -22,6 +24,26 @@ class TodoReturn(BaseModel):
     description: str
     completed: bool
     id: Optional[int] = None
+
+
+custom_messages = {
+    "title": "Длина пароля должна быть от 8 до 16 символов",
+    "description": "Описание должно быть строкой",
+    "completed": "Должно быть булево число"
+}
+
+
+@app.exception_handler(RequestValidationError)
+def custom_request_validation_handler(request: Request, exc: RequestValidationError):
+    errors = []
+    for error in exc.errors():
+        field = error["loc"][-1]
+        msg = custom_messages.get(field)
+        errors.append({"field": field, "msg": msg, "value": error["input"]})
+    print(errors)
+    return JSONResponse(status_code=400, content=errors)
+
+app.add_exception_handler(RequestValidationError, custom_request_validation_handler)
 
 
 @app.on_event("startup")

@@ -4,6 +4,7 @@ from databases import Database
 from pydantic import BaseModel
 from typing import Optional
 from fastapi.exceptions import RequestValidationError
+import datetime
 
 
 app = FastAPI()
@@ -24,6 +25,36 @@ class TodoReturn(BaseModel):
     description: str
     completed: bool
     id: Optional[int] = None
+
+class ErrorResponseModel(BaseModel):
+    status_code: int
+    detail: str
+    error_code: int
+
+
+class UserNotFoundException(HTTPException):
+    def __init__(self, status_code: int = 404, detail: str = 'UserNotFoundEpt'):
+        super().__init__(status_code=status_code, detail=detail)
+
+
+class InvalidUserDataException(HTTPException):
+    def __init__(self, detail: str, status_code: int, message: str):
+        super().__init__(status_code=status_code, detail=detail)
+        self.message = message
+
+
+@app.exception_handler(UserNotFoundException)
+async def custom_exception_handler_a(request: Request, exc: ErrorResponseModel):
+        start = datetime.datetime.now()
+        return JSONResponse(status_code=exc.status_code,
+            content=exc.detail,
+            headers={"X-Error": str(datetime.datetime.now()-start)},
+        )
+
+
+@app.exception_handler(InvalidUserDataException)
+async def custom_exception_handler_b(request: Request, exc: ErrorResponseModel) -> JSONResponse:
+    return JSONResponse(status_code=exc.status_code,content=exc.detail)
 
 
 custom_messages = {
@@ -77,7 +108,7 @@ async def get_user(task_id: int):
     if result:
         return TodoReturn(title=result["title"], description=result["description"], completed=result["completed"], id=result["id"])
     else:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise UserNotFoundException(status_code=404, detail="fdsfdsfds not found")
 
 
 @app.put("/task/{task_id}", response_model=TodoReturn)
